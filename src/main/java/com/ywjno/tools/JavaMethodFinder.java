@@ -17,10 +17,14 @@ import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 
 @CommandLine.Command(name = "jmf", description = "Java Method Finder", mixinStandardHelpOptions = true)
 public class JavaMethodFinder implements Callable<Integer> {
+
+    private static final Logger logger = LoggerFactory.getLogger(JavaMethodFinder.class);
 
     private final List<String> results;
 
@@ -54,7 +58,7 @@ public class JavaMethodFinder implements Callable<Integer> {
 
     private void logDebug(String message) {
         if (verbose) {
-            System.out.println("[DEBUG] " + message);
+            logger.debug(message);
         }
     }
 
@@ -84,10 +88,10 @@ public class JavaMethodFinder implements Callable<Integer> {
             printResults.run();
             return 0;
         } catch (IOException e) {
-            System.out.println("Could not scan folder: " + targetFolder.normalize());
+            logger.error("Could not scan folder: {}", targetFolder.normalize());
             return 1;
         } catch (IllegalArgumentException e) {
-            System.out.println(e.getMessage());
+            logger.error(e.getMessage());
             return 1;
         }
     }
@@ -150,13 +154,13 @@ public class JavaMethodFinder implements Callable<Integer> {
     }
 
     private void printResults() {
-        System.out.println(targetClassName + "#" + targetMethodName);
+        logger.info("{}#{}", targetClassName, targetMethodName);
         if (!results.isEmpty()) {
             for (String result : getResults()) {
-                System.out.println(" - " + result);
+                logger.info(" - {}", result);
             }
         } else {
-            System.out.println("No results");
+            logger.info("No results");
         }
     }
 
