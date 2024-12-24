@@ -2,15 +2,18 @@ package com.ywjno.tools;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Queue;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
@@ -26,7 +29,7 @@ public class JavaMethodFinder implements Callable<Integer> {
 
     private static final Logger logger = LoggerFactory.getLogger(JavaMethodFinder.class);
 
-    private final List<String> results;
+    private final Queue<String> results = new ConcurrentLinkedQueue<>();
 
     @CommandLine.Option(
             names = {"-c", "--class"},
@@ -52,18 +55,10 @@ public class JavaMethodFinder implements Callable<Integer> {
             defaultValue = "false")
     private boolean verbose;
 
-    public JavaMethodFinder() {
-        results = new ArrayList<>();
-    }
-
     private void logDebug(String message) {
         if (verbose) {
             logger.debug(message);
         }
-    }
-
-    private List<String> getResults() {
-        return results;
     }
 
     @Override
@@ -73,26 +68,37 @@ public class JavaMethodFinder implements Callable<Integer> {
 
     private int scanFolder(Runnable printResults) {
         Path targetFolder = Paths.get(scanFolder).toAbsolutePath();
-        try {
-            logDebug("Start scanning folder: " + targetFolder.normalize());
-            Files.walkFileTree(targetFolder, new SimpleFileVisitor<Path>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    if (file.toFile().getName().endsWith(".class")) {
-                        logDebug("Analyzing class file: " + file.getFileName());
-                        analyzeClass(file);
-                    }
-                    return super.visitFile(file, attrs);
+
+        ExecutorService executor =
+                Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+        try (Stream<Path> folder = Files.walk(targetFolder)) {
+            List<Future<?>> futures = folder.filter(
+                            path -> path.toFile().getName().endsWith(".class"))
+                    .map(file -> executor.submit(() -> {
+                        try {
+                            analyzeClass(file);
+                        } catch (IllegalArgumentException e) {
+                            logger.error(e.getMessage());
+                        }
+                    }))
+                    .collect(Collectors.toList());
+
+            for (Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (Exception e) {
+                    logger.error("Error during analysis: {}", e.getMessage());
+                    return 1;
                 }
-            });
+            }
+
             printResults.run();
             return 0;
         } catch (IOException e) {
             logger.error("Could not scan folder: {}", targetFolder.normalize());
             return 1;
-        } catch (IllegalArgumentException e) {
-            logger.error(e.getMessage());
-            return 1;
+        } finally {
+            executor.shutdown();
         }
     }
 
@@ -139,7 +145,7 @@ public class JavaMethodFinder implements Callable<Integer> {
                                         "%s#%s (L%d)",
                                         currentClassName.replace('/', '.'), currentMethodName, currentLine);
                                 logDebug("Found method call: " + result);
-                                getResults().add(result);
+                                results.add(result);
                             }
                         }
                     };
@@ -156,9 +162,7 @@ public class JavaMethodFinder implements Callable<Integer> {
     private void printResults() {
         logger.info("{}#{}", targetClassName, targetMethodName);
         if (!results.isEmpty()) {
-            for (String result : getResults()) {
-                logger.info(" - {}", result);
-            }
+            results.stream().sorted().forEach(result -> logger.info(" - {}", result));
         } else {
             logger.info("No results");
         }
