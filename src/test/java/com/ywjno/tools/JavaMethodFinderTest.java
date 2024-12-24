@@ -21,37 +21,40 @@ public class JavaMethodFinderTest {
     @TempDir
     Path tempDir;
 
+    private ByteArrayOutputStream setupLogCapture() {
+        ByteArrayOutputStream logContent = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(logContent));
+        return logContent;
+    }
+
+    private void resetLogCapture() {
+        System.setErr(System.err);
+    }
+
     @Test
     void shouldFindMethodCalls() throws IOException {
         Path classesDir = tempDir.resolve("classes");
         Files.createDirectories(classesDir);
         copyTestClassFile(classesDir);
 
-        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
-        PrintStream originalOut = System.out;
-
-        try {
-            System.setOut(new PrintStream(outContent));
+        try (ByteArrayOutputStream logContent = setupLogCapture()) {
             int exitCode = new CommandLine(new JavaMethodFinder())
                     .execute("-c", "java.lang.String", "-m", "toString", "-s", classesDir.toString());
 
             assertEquals(0, exitCode);
-            String output = outContent.toString();
+            String output = logContent.toString();
             assertTrue(output.contains("java.lang.String#toString"));
             assertTrue(output.contains("- com.example.TestClass#testMethod (L8)"));
             assertTrue(output.contains("- com.example.TestClass#testMethod (L10)"));
         } finally {
-            System.setOut(originalOut);
+            resetLogCapture();
         }
     }
 
     @Test
-    void shouldHandleInvalidClassPath() {
-        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
-        PrintStream originalOut = System.out;
-
-        try {
-            System.setOut(new PrintStream(outContent));
+    void shouldHandleInvalidClassPath() throws IOException {
+        try (ByteArrayOutputStream logContent = setupLogCapture()) {
+            System.setOut(new PrintStream(logContent));
             int exitCode = new CommandLine(new JavaMethodFinder())
                     .execute(
                             "-c", "java.lang.String",
@@ -59,10 +62,10 @@ public class JavaMethodFinderTest {
                             "-s", "/invalid/path");
 
             assertEquals(1, exitCode);
-            String output = outContent.toString();
+            String output = logContent.toString();
             assertTrue(output.contains("Could not scan folder"));
         } finally {
-            System.setOut(originalOut);
+            resetLogCapture();
         }
     }
 
@@ -72,18 +75,15 @@ public class JavaMethodFinderTest {
         Files.createDirectories(classesDir);
         copyTestClassFile(classesDir);
 
-        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
-        System.setOut(new PrintStream(outContent));
-
-        try {
+        try (ByteArrayOutputStream logContent = setupLogCapture()) {
             int exitCode = new CommandLine(new JavaMethodFinder())
                     .execute("-c", "java.lang.String", "-m", "toString", "-s", classesDir.toString(), "-v");
 
             assertEquals(0, exitCode);
-            String output = outContent.toString();
-            assertTrue(output.contains("[DEBUG]"));
+            String output = logContent.toString();
+            assertTrue(output.contains("DEBUG"));
         } finally {
-            System.setOut(System.out);
+            resetLogCapture();
         }
     }
 
