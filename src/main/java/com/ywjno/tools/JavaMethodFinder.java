@@ -92,41 +92,39 @@ public class JavaMethodFinder implements Callable<Integer> {
         try (InputStream is = Files.newInputStream(classFile)) {
             ClassReader reader = new ClassReader(is);
             ClassVisitor visitor = new ClassVisitor(Opcodes.ASM9) {
-                private String currentClassName;
+                private String className;
 
                 @Override
                 public void visit(
                         int version, int access, String name, String signature, String superName, String[] interfaces) {
-                    this.currentClassName = name;
+                    this.className = name;
                     logDebug("Visiting class: " + name);
                 }
 
                 @Override
                 public MethodVisitor visitMethod(
                         int access, String name, String descriptor, String signature, String[] exceptions) {
-                    String currentMethodName = name;
-                    logDebug("Visiting method: " + currentClassName + "#" + name);
+                    String methodName = name;
+                    logDebug("Visiting method: " + className + "#" + name);
 
                     return new MethodVisitor(Opcodes.ASM9) {
-                        private int currentLine;
+                        private int lineNumber;
 
                         @Override
                         public void visitLineNumber(int line, Label start) {
-                            this.currentLine = line;
+                            this.lineNumber = line;
                         }
 
                         @Override
                         public void visitMethodInsn(
                                 int opcode, String owner, String name, String descriptor, boolean isInterface) {
                             String jvmClassName = targetClassName.replace('.', '/');
-                            if (!currentClassName.equals(jvmClassName)
+                            if (!className.equals(jvmClassName)
                                     && owner.equals(jvmClassName)
                                     && name.equals(targetMethodName)) {
-                                String result = String.format(
-                                        "%s#%s (L%d)",
-                                        currentClassName.replace('/', '.'), currentMethodName, currentLine);
-                                logDebug("Found method call: " + result);
-                                results.add(result);
+                                FoundClass foundClass = new FoundClass(className, methodName, lineNumber);
+                                logDebug("Found method call: " + foundClass);
+                                results.add(foundClass.toString());
                             }
                         }
                     };
@@ -152,5 +150,22 @@ public class JavaMethodFinder implements Callable<Integer> {
     public static void main(String[] args) {
         int exitCode = new CommandLine(new JavaMethodFinder()).execute(args);
         System.exit(exitCode);
+    }
+
+    static class FoundClass {
+        private final String className;
+        private final String methodName;
+        private final int lineNumber;
+
+        public FoundClass(String className, String methodName, int lineNumber) {
+            this.className = className;
+            this.methodName = methodName;
+            this.lineNumber = lineNumber;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("%s#%s (L%d)", className.replace('/', '.'), methodName, lineNumber);
+        }
     }
 }
